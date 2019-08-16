@@ -1,0 +1,280 @@
+---
+title: "Reproducible Data Project 2"
+author: "chrisgoose"
+date: "8/14/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen=999) # make knitr print large numbers expanded form
+```
+
+# The Effects of Storm & Severe Weather on Economics & Population Health
+
+
+## Intro
+
+Storms and other severe weather events can cause both public health and economic 
+problems for communities and municipalities. Many severe events can result in 
+fatalities, injuries, and property damage, and preventing such outcomes to the 
+extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric 
+Administration's (NOAA) storm database. This database tracks characteristics of 
+major storms and weather events in the United States, including when and where 
+they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+The basic goal of this assignment is to explore the NOAA Storm Database and 
+answer some basic questions about severe weather events.
+
+My data analysis addresses the following questions:
+
+1. Across the United States, which types of events are most harmful with respect 
+to population health?
+
+2. Across the United States, which types of events have the greatest economic 
+consequences?
+
+This report could be read by a government or municipal manager who might be 
+responsible for preparing for severe weather events and will need to prioritize 
+resources for different types of events. However, there are no specific 
+recommendations in my report.
+
+
+## Data Processing
+
+First, I downloaded the NOAA storm database and extracted the file. I removed 
+most of the variables to create a lower dimension dataset. I kept  variables 
+related to event type, number of fatalities, number of injuries, value of 
+property damage, and value of crop damage.
+
+```{r get data}
+##Here are the data for the project:
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+
+if(!file.exists("repdata_data_StormData.csv.bz2")) {
+        download.file(url, "repdata_data_StormData.csv.bz2", method="curl")
+}
+stormData <- read.csv("repdata_data_StormData.csv.bz2")
+
+colnames(stormData)
+
+#create lower dimension table
+stormData2 <- stormData[, c("REFNUM", "EVTYPE", "FATALITIES", "INJURIES", 
+                            "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")]
+
+str (stormData2)
+```
+
+
+Next, I handled conversions of the property and crop damage variables, with
+support from this [anonmyous RPub doc on the ^EXP labels](https://rstudio-pubs-static.s3.amazonaws.com/58957_37b6723ee52b455990e149edde45e5b6.html). 
+In general, labels such as B, M, K, H are converted to 9, 6, 3, 2, respectively,
+to indicate an exponential power of 10. From there, the values in the property 
+and crop damage columns are raised to the power of 10 in the ^EXP column.
+
+```{r clean data}
+
+#change lowercase labels to uppercase, i.e., 'm' to 'M'
+stormData2$PROPDMGEXP <- toupper(stormData2$PROPDMGEXP)
+stormData2$CROPDMGEXP <- toupper(stormData2$CROPDMGEXP)
+
+#change alpha & symbolic labels to numeric for exponents
+stormData2[stormData2$PROPDMGEXP == "B","PROPDMGEXP"] <- 9
+stormData2[stormData2$PROPDMGEXP == "M","PROPDMGEXP"] <- 6
+stormData2[stormData2$PROPDMGEXP == "K","PROPDMGEXP"] <- 3
+stormData2[stormData2$PROPDMGEXP == "H","PROPDMGEXP"] <- 2
+stormData2[stormData2$PROPDMGEXP %in% c("+","-","?","_", ""),"PROPDMGEXP"] <- 0
+
+stormData2[stormData2$CROPDMGEXP == "B","CROPDMGEXP"] <- 9
+stormData2[stormData2$CROPDMGEXP == "M","CROPDMGEXP"] <- 6
+stormData2[stormData2$CROPDMGEXP == "K","CROPDMGEXP"] <- 3
+stormData2[stormData2$CROPDMGEXP == "H","CROPDMGEXP"] <- 2
+stormData2[stormData2$CROPDMGEXP %in% c("+","-","?","_", ""),"CROPDMGEXP"] <- 0
+
+unique(c(stormData2$PROPDMGEXP, stormData2$CROPDMGEXP))
+
+stormData2$PROPDMG <- with(stormData2, PROPDMG * 10^as.numeric(PROPDMGEXP))
+stormData2$CROPDMG <- with(stormData2, CROPDMG * 10^as.numeric(CROPDMGEXP))
+
+stormData2 <- stormData2[, c("REFNUM", "EVTYPE", "FATALITIES", "INJURIES", 
+                            "PROPDMG", "CROPDMG")]
+names(stormData2)[1:6] <- c("id", "eventType", "fatalities", "injuries", 
+                            "propertyDamage", "cropDamage")
+head(stormData2)
+```
+
+
+## Results
+
+### Population Health
+To begin exploring the general equation "Across the United States, which types 
+of events are most harmful with respect to population health?", I decided to
+answer the specific questions:
+
+* Which types of events had the most fatalities?
+
+* Which types of events had the most injuries?
+
+#### Most fatal events.
+
+The top 15 "most fatal" events are ranked below; the top 10 are shown in the 
+bar chart. Storm events appear to follow a Pareto distribution in regard to 
+injuries. 
+
+```{r fatalities}
+#make tidy fatalities data, then rank events by sum
+fatality <- stormData2[, c("id", "eventType","fatalities")]
+fatalitySum <- aggregate(fatality$fatalities, 
+                         by = list(eventType = fatality$eventType), sum)
+fatalitySum <- fatalitySum[order(fatalitySum$x, decreasing = TRUE), ]
+head(fatalitySum, 15)
+
+#make barplot
+require(ggplot2)
+ggplot(fatalitySum[1:10, ], aes(x = reorder(eventType, -x), y = x)) + 
+        geom_bar(stat = "identity") + xlab("Storm Event Type") + 
+        ylab("Sum of Fatalities") + ggtitle("Fatalities by Event, 1950-2011") + 
+        theme(axis.text.x = element_text(angle = 90))
+
+#tornado > next 5
+fatalitySum$x[[1]]
+sum(fatalitySum[2:6,2])
+```
+
+Tornados (`r fatalitySum$x[[1]]` injuries) have caused the 
+most injuries, more than the next 5 events combined 
+(`r sum(fatalitySum[2:6,2])` injuries).
+
+
+#### Most injurious events
+
+The top 15 "most injurious" events are ranked below; the top 10 are shown in the 
+bar chart. Storm events again appear to follow a Pareto distribution, this time
+in regard to injuries.
+
+```{r injuries}
+#make tidy injuries data, then rank event by sum
+injury <- stormData2[, c("id", "eventType","injuries")]
+injurySum <- aggregate(injury$injuries, by = list(eventType = injury$eventType), 
+                       sum)
+injurySum <- injurySum[order(injurySum$x, decreasing = TRUE), ]
+head(injurySum, 15)
+
+#make barplot
+ggplot(injurySum[1:10, ], aes(x = reorder(eventType, -x), y = x)) + 
+        geom_bar(stat = "identity") + xlab("Storm Event Type") + 
+        ylab("Sum of Injuries") + ggtitle("Injuries by Event, 1950-2011") + 
+        theme(axis.text.x = element_text(angle = 90))
+
+#tornado > all else
+injurySum$x[[1]]
+sum(injurySum$x) - injurySum$x[[1]]
+```
+
+Tornados (`r injurySum$x[[1]]` injuries) have caused the 
+most injuries, more than all other events combined 
+(`r sum(injurySum$x) - injurySum$x[[1]]` injuries).
+
+
+### Economic Damage
+
+To begin exploring the general equation "Across the United States, which types 
+of events have the greatest economic consequences?", I decided to answer the 
+specific questions:
+
+* Which types of events caused the highest costs in crop damage?
+
+* Which types of events caused the highest costs in property damage?
+
+* Which types of events caused the highest combined costs of economic damage?
+
+#### Most economic damage to crops
+
+The top 15 events causing crop damage are ranked below. Storm events again 
+appear to follow a Pareto distribution, now with economic loss and crop damage.
+
+```{r crop damage}
+#make tidy crop damage data, then rank events by sum
+crop <- stormData2[, c("id", "eventType","cropDamage")]
+cropSum <- aggregate(crop$cropDamage, by = list(eventType = crop$eventType), 
+                       sum)
+cropSum <- cropSum[order(cropSum$x, decreasing = TRUE), ]
+head(cropSum, 15)
+
+#drought > next 2
+cropSum$x[[1]]
+sum(cropSum[2:3,2])
+```
+
+Drought (`r cropSum$x[[1]]` dollars) have caused the most crop damage, more than 
+the next two events (flood & river flood) combined ($`r sum(cropSum[2:3,2])`).
+
+
+#### Most economic damage to property
+
+The top 15 events causing property damage are ranked below. Yet another instance 
+of a Pareto distribution, now with economic loss and property damage.
+
+```{r property damage}
+#make tidy property damage data, then rank events by sum
+property <- stormData2[, c("id", "eventType","propertyDamage")]
+propertySum <- aggregate(property$propertyDamage, 
+                         by = list(eventType = property$eventType), sum)
+propertySum <- propertySum[order(propertySum$x, decreasing = TRUE), ]
+head(propertySum, 15)
+
+#flood > next 2
+propertySum$x[[1]]
+sum(propertySum[2:3,2])
+```
+
+Floods (`r propertySum$x[[1]]` dollars) have caused the most crop damage, more 
+than the next two events (hurricane & tornado) combined 
+($`r sum(propertySum[2:3,2])`).
+
+
+#### Most economic damage to crops and property combined
+
+The top 15 events causing combined economic damage are ranked below; the bar plot
+shows the top 10 events. Yet another instance of a Pareto distribution, now with 
+combined economic loss.
+
+```{r economic damage}
+#add prop & crop damage, then rank events by sum
+econ <- stormData2[, c("id", "eventType","cropDamage", "propertyDamage")]
+econ$econDamage <- with(econ, econ$cropDamage + econ$propertyDamage)
+econSum <- aggregate(econ$econDamage, by = list(eventType = econ$eventType), 
+                       sum)
+econSum <- econSum[order(econSum$x, decreasing = TRUE), ]
+head(econSum, 15)
+
+#make barplot
+require(ggplot2)
+ggplot(econSum[1:10, ], aes(x = reorder(eventType, -x), y = x)) + 
+        geom_bar(stat = "identity") + xlab("Storm Event Type") + 
+        ylab("Sum of Economic Damage ($)") + 
+        ggtitle("Economic Property & Crop Damage by Event, 1950-2011") + 
+        theme(axis.text.x = element_text(angle = 90))
+
+#drought > next 2
+econSum$x[[1]]
+sum(econSum[2:3,2])
+```
+
+Floods (`r econSum$x[[1]]` dollars) have caused the most economic damage, 
+more than the next two events (hurricane & tornado) combined 
+($`r sum(econSum[2:3,2])`).
+
+
+## Conclusion
+
+* Tornados have caused the most damage to population health if measuring 
+fatalities and injuries. Tornados have also imposed the 3rd largest cost in 
+economic loss.
+* Droughts have imposed the largest cost in economic loss measuring crop damage.
+* Floods have imposed the largest cost in economic loss, and when isolating
+property damage. Floods have also imposed the second largest crop damage. The 
+similar "flash floods" have imposed the sixth largest crop damage. "River 
+floods" have imposed the ninth highest property damage.
